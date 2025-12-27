@@ -1,0 +1,23 @@
+{
+  "name": "valorant-discord-overlay",
+  "version": "1.0.0",
+  "description": "Discord overlay that shows Valorant agents for voice participants",
+  "main": "backend/index.js",
+  "bin": "backend/index.js",
+  "scripts": {
+    "start": "node backend/index.js",
+    "dev": "nodemon backend/index.js"
+  },
+  "dependencies": {
+    "discord-rpc": "^4.0.1",
+    "express": "^4.21.2",
+    "node-fetch": "^2.6.7",
+    "ws": "^8.18.0"
+  },
+  "pkg": {
+    "assets": [
+      "frontend/**/*",
+      "website/**/*"
+    ]
+  }
+}

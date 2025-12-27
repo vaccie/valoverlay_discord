@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Valorant Overlay Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="dashboard.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Oswald:wght@500;700&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <div class="dashboard-container">
+        <header>
+            <h1>OVERLAY CONTROL</h1>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <div id="discord-badge" class="badge">Discord: ...</div>
+                <div id="status-badge" class="badge">Valorant: ...</div>
+                <button id="settings-btn" class="btn btn-secondary small" style="border-color: #555;">⚙️ SETUP</button>
+            </div>
+        </header>
+
+        <section class="info-panel">
+            <div class="info-icon">ℹ️</div>
+            <div class="info-text">
+                <h3>How It Works</h3>
+                <p>The overlay automatically tries to match <strong>Discord Usernames</strong> to <strong>Valorant
+                        Names</strong>.</p>
+                <p class="sub-text">Use the list below ONLY if the names are different and auto-detection fails. (e.g.
+                    Discord: "CoolGuy" -> Valorant: "ProGamer#EU1")</p>
+            </div>
+            <a href="/" target="_blank" class="btn btn-primary launch-btn">OPEN OVERLAY ↗</a>
+        </section>
+
+        <section class="mapping-section">
+            <div class="section-header">
+                <h2>Manual Mappings</h2>
+                <button id="add-btn" class="btn btn-secondary small">+ ADD NEW</button>
+            </div>
+
+            <div class="table-wrapper">
+                <table id="mapping-table">
+                    <thead>
+                        <tr>
+                            <th>Discord Name</th>
+                            <th>Valorant Name (GameName#Tag)</th>
+                            <th style="width: 100px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div id="modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Add/Edit Mapping</h3>
+            <div class="form-group">
+                <label>Discord Username</label>
+                <input type="text" id="discord-input" placeholder="e.g. Mattiabec">
+            </div>
+            <div class="form-group">
+                <label>Valorant Name</label>
+                <input type="text" id="valorant-input" placeholder="e.g. Bec#EUW">
+            </div>
+            <div class="modal-actions">
+                <button id="cancel-btn" class="btn btn-text">Cancel</button>
+                <button id="save-btn" class="btn btn-primary">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Config Modal -->
+    <div id="config-modal" class="modal hidden">
+        <div class="modal-content" style="width: 600px; max-height: 90vh; overflow-y: auto;">
+            <h3>Discord Configuration</h3>
+
+            <div class="guide-steps"
+                style="background: rgba(0,0,0,0.2); padding: 15px; margin-bottom: 20px; border-radius: 4px; font-size: 0.9rem; color: #ccc;">
+                <strong style="color:white; display:block; margin-bottom:10px;">SETUP GUIDE:</strong>
+                <ol style="margin-left: 20px; line-height: 1.6;">
+                    <li>Go to <a href="https://discord.com/developers/applications" target="_blank"
+                            style="color:#ff4655;">Discord Developer Portal</a>.</li>
+                    <li>Click <strong>New Application</strong> and give it a name.</li>
+                    <li>Go to <strong>OAuth2</strong> menu. Copy <strong>Client ID</strong> below.</li>
+                    <li>Click <strong>Reset Secret</strong>, copy <strong>Client Secret</strong> below.</li>
+                    <li>In <strong>Redirects</strong>, add exactly: <code>http://localhost</code> and Save.</li>
+                </ol>
+            </div>
+
+            <div class="form-group">
+                <label>Client ID</label>
+                <input type="text" id="client-id-input" placeholder="e.g. 123456789...">
+            </div>
+            <div class="form-group">
+                <label>Client Secret</label>
+                <input type="password" id="client-secret-input" placeholder="e.g. abcXYZ...">
+                <div
+                    style="margin-top: 5px; font-size: 0.8rem; opacity: 0.7; display: flex; align-items: center; gap: 5px;">
+                    <input type="checkbox" onclick="toggleSecretVisibility()" style="width: auto;"> Show Secret
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Redirect URI (Default: http://localhost)</label>
+                <input type="text" id="redirect-input" value="http://localhost" readonly
+                    style="opacity: 0.6; cursor: not-allowed;">
+            </div>
+
+            <div class="modal-actions">
+                <button id="config-cancel-btn" class="btn btn-text">Cancel</button>
+                <button id="config-save-btn" class="btn btn-primary">SAVE & RESTART</button>
+            </div>
+        </div>
+    </div>
+
+    <footer style="text-align: center; padding: 20px; color: #666; font-size: 0.8rem; margin-top: auto;">
+        Made with ❤️ by vaccie
+    </footer>
+
+    <script src="dashboard.js"></script>
+</body>
+
+</html>
