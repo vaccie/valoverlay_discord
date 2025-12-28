@@ -23,7 +23,7 @@ A clean, modern Discord voice overlay for streamers that automatically matches D
 ### Option 2: Build from Source
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/valorant-overlay.git
+   git clone https://github.com/vaccie/valoverlay_discord.git
    ```
 2. Install dependencies:
    ```bash
