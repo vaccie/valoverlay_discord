@@ -60,6 +60,11 @@ function updateUsers(userList) {
             const img = entry.element.querySelector('.avatar');
             if (img.src !== displayImage) {
                 img.src = displayImage;
+
+                // Trigger animation
+                img.classList.remove('updating');
+                void img.offsetWidth; // Force reflow
+                img.classList.add('updating');
             }
             entry.element.dataset.muted = String(user.isMuted);
             entry.element.dataset.deafened = String(user.isDeaf);

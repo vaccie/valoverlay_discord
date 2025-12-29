@@ -48,8 +48,16 @@ class DiscordClient extends EventEmitter {
             this.emit('update');
         });
 
-        // Basic event mapping - just pass them up to the main loop to handle
+        // Basic event mapping
         this.rpc.on('VOICE_STATE_UPDATE', (data) => {
+            // Failsafe: If user is muted/deafened, force stop speaking
+            const vs = data.voice_state || {};
+            const isMuted = vs.mute || vs.self_mute || vs.suppress;
+
+            if (isMuted && data.user && data.user.id) {
+                this.emit('speaking', { userId: data.user.id, isSpeaking: false });
+            }
+
             this.emit('update');
         });
 

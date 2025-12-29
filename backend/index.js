@@ -2,8 +2,10 @@ const fs = require('fs');
 const path = require('path');
 
 // DEBUG FILE LOGGER (INITIALIZED FIRST)
+const USE_MOCK_DATA = false;
 const LOG_FILE = path.join(process.cwd(), 'debug_log.txt');
 function logToFile(msg) {
+    if (!USE_MOCK_DATA) return;
     try {
         const timestamp = new Date().toISOString();
         fs.appendFileSync(LOG_FILE, `[${timestamp}] ${msg} \n`);
@@ -143,7 +145,7 @@ app.post('/api/config', (req, res) => {
 let connectedClients = new Set();
 let userAgentMap = {};
 
-const USE_MOCK_DATA = false;
+
 
 const broadcast = (data) => {
     const payload = JSON.stringify(data);
