@@ -282,6 +282,21 @@ class ValorantClient {
         return [];
     }
 
+    async fetchWithRetry(url) {
+        let headers = this.getRemoteHeaders();
+        let res = await fetch(url, { headers });
+
+        if (res.status === 401 || res.status === 403) {
+            console.log('[Valorant] Token expired for remote request. Refreshing...');
+            await this.fetchPUUID();
+            headers = this.getRemoteHeaders();
+            res = await fetch(url, { headers });
+        }
+
+        if (!res.ok) throw new Error(`Status ${res.status}`);
+        return await res.json();
+    }
+
     async _getCoreGameData() {
         try {
             const res = await this.request(`/core-game/v1/players/${this.puuid}`);
@@ -292,18 +307,13 @@ class ValorantClient {
             }
         } catch (e) {
             try {
-                const headers = this.getRemoteHeaders();
                 const baseUrl = this.glzUrl || `https://glz-${this.region}-1.${this.shard}.a.pvp.net`;
 
-                const res = await fetch(`${baseUrl}/core-game/v1/players/${this.puuid}`, { headers });
-                if (!res.ok) throw new Error();
-                const json = await res.json();
-
+                const json = await this.fetchWithRetry(`${baseUrl}/core-game/v1/players/${this.puuid}`);
                 const matchId = json.MatchID;
+
                 if (matchId) {
-                    const matchRes = await fetch(`${baseUrl}/core-game/v1/matches/${matchId}`, { headers });
-                    if (!matchRes.ok) throw new Error();
-                    return await matchRes.json();
+                    return await this.fetchWithRetry(`${baseUrl}/core-game/v1/matches/${matchId}`);
                 }
             } catch (re) { }
         }
@@ -320,18 +330,13 @@ class ValorantClient {
             }
         } catch (e) {
             try {
-                const headers = this.getRemoteHeaders();
                 const baseUrl = this.glzUrl || `https://glz-${this.region}-1.${this.shard}.a.pvp.net`;
 
-                const res = await fetch(`${baseUrl}/pre-game/v1/players/${this.puuid}`, { headers });
-                if (!res.ok) throw new Error();
-                const json = await res.json();
-
+                const json = await this.fetchWithRetry(`${baseUrl}/pre-game/v1/players/${this.puuid}`);
                 const matchId = json.MatchID;
+
                 if (matchId) {
-                    const matchRes = await fetch(`${baseUrl}/pre-game/v1/matches/${matchId}`, { headers });
-                    if (!matchRes.ok) throw new Error();
-                    return await matchRes.json();
+                    return await this.fetchWithRetry(`${baseUrl}/pre-game/v1/matches/${matchId}`);
                 }
             } catch (re) { }
         }
@@ -345,11 +350,8 @@ class ValorantClient {
             if (partyId) {
                 const baseUrl = this.glzUrl || `https://glz-${this.region}-1.${this.shard}.a.pvp.net`;
                 const remoteUrl = `${baseUrl}/parties/v1/parties/${partyId}`;
-                const headers = this.getRemoteHeaders();
 
-                const partyRes = await fetch(remoteUrl, { headers });
-                if (!partyRes.ok) throw new Error();
-                return await partyRes.json();
+                return await this.fetchWithRetry(remoteUrl);
             }
         } catch (e) { }
         return null;
