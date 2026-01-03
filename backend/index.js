@@ -184,7 +184,6 @@ async function sendUpdate() {
 
     const localAgentId = await valorant.getLocalPlayerAgent();
 
-
     const matchPlayers = await valorant.getMatchPlayers();
     const matchPuuids = matchPlayers.map(p => p.puuid);
     const playerNames = await valorant.fetchPlayerNames(matchPuuids);
@@ -198,6 +197,7 @@ async function sendUpdate() {
             nameToAgentMap[justName] = p.agentId;
         }
     });
+
 
     const enrichedUsers = await Promise.all(voiceStates.map(async (member) => {
         const discordId = member.user.id;
@@ -227,6 +227,7 @@ async function sendUpdate() {
 
                     if (mappedValName) {
                         const targetValName = mappedValName.toLowerCase();
+
                         if (nameToAgentMap[targetValName]) {
                             agentId = nameToAgentMap[targetValName];
                         } else {
@@ -239,7 +240,8 @@ async function sendUpdate() {
                         }
                     }
                 }
-            } catch (e) { }
+            } catch (e) {
+            }
 
             if (!agentId && USE_MOCK_DATA) {
                 const agents = Object.keys(valorant.agentMap);
@@ -250,8 +252,12 @@ async function sendUpdate() {
             }
 
             if (!agentId) {
-                if (nameToAgentMap[discordName]) agentId = nameToAgentMap[discordName];
-                else if (discordNick && nameToAgentMap[discordNick]) agentId = nameToAgentMap[discordNick];
+                if (nameToAgentMap[discordName]) {
+                    agentId = nameToAgentMap[discordName];
+                }
+                else if (discordNick && nameToAgentMap[discordNick]) {
+                    agentId = nameToAgentMap[discordNick];
+                }
 
                 if (!agentId) {
                     for (const [valName, valAgent] of Object.entries(nameToAgentMap)) {
@@ -279,7 +285,6 @@ async function sendUpdate() {
             username: member.nick || member.user.username,
             avatar: `https://cdn.discordapp.com/avatars/${member.user.id}/${member.user.avatar}.png`,
             agentImage: imageUrl,
-            isMuted: isMuted,
             isMuted: isMuted,
             isDeaf: isDeaf,
             isSpeaking: discord.isUserSpeaking(discordId)

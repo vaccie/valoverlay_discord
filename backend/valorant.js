@@ -313,23 +313,31 @@ class ValorantClient {
 
         if (loopState === 'INGAME') {
             const data = await this._getCoreGameData();
-            if (data) return extractPlayers(data, 'CORE');
+            if (data) {
+                return extractPlayers(data, 'CORE');
+            }
         } else if (loopState === 'PREGAME') {
             const data = await this._getPreGameData();
             if (data) return extractPlayers(data, 'PRE');
         } else if (loopState === 'MENUS') {
             const data = await this._getPartyData();
-            if (data) return extractPlayers(data, 'PARTY');
+            if (data) {
+                return extractPlayers(data, 'PARTY');
+            }
         }
 
         const core = await this._getCoreGameData();
-        if (core) return extractPlayers(core, 'CORE');
+        if (core) {
+            return extractPlayers(core, 'CORE');
+        }
 
         const pre = await this._getPreGameData();
         if (pre) return extractPlayers(pre, 'PRE');
 
         const party = await this._getPartyData();
-        if (party) return extractPlayers(party, 'PARTY');
+        if (party) {
+            return extractPlayers(party, 'PARTY');
+        }
 
         return [];
     }
@@ -345,8 +353,20 @@ class ValorantClient {
             res = await fetch(url, { headers });
         }
 
-        if (!res.ok) throw new Error(`Status ${res.status}`);
         return await res.json();
+    }
+
+    async _fetchRemoteMatch(type) {
+        try {
+            const baseUrl = this.glzUrl || `https://glz-${this.region}-1.${this.shard}.a.pvp.net`;
+            const json = await this.fetchWithRetry(`${baseUrl}/${type}/v1/players/${this.puuid}`);
+            const matchId = json.MatchID;
+
+            if (matchId) {
+                return await this.fetchWithRetry(`${baseUrl}/${type}/v1/matches/${matchId}`);
+            }
+        } catch (e) { }
+        return null;
     }
 
     async _getCoreGameData() {
@@ -355,12 +375,13 @@ class ValorantClient {
             const matchId = res.data.MatchID;
             if (matchId) {
                 const matchRes = await this.request(`/core-game/v1/matches/${matchId}`);
-                return matchRes.data;
+                if (matchRes.data && matchRes.data.Players && matchRes.data.Players.length > 1) {
+                    return matchRes.data;
+                }
             }
         } catch (e) {
-            // Local API 404 means we are definitely NOT in a core game. Do not fallback.
             if (e.response && e.response.status === 404) {
-                return null;
+                // return null; // FIX: Fallback to remote even if local is 404
             }
             // If connection is refused/reset, the game might have closed or changed ports
             if (e.code === 'ECONNREFUSED' || e.type === 'system') {
@@ -369,18 +390,9 @@ class ValorantClient {
                 return null;
             }
 
-            try {
-                const baseUrl = this.glzUrl || `https://glz-${this.region}-1.${this.shard}.a.pvp.net`;
-
-                const json = await this.fetchWithRetry(`${baseUrl}/core-game/v1/players/${this.puuid}`);
-                const matchId = json.MatchID;
-
-                if (matchId) {
-                    return await this.fetchWithRetry(`${baseUrl}/core-game/v1/matches/${matchId}`);
-                }
-            } catch (re) { }
+            // Consolidated fallback for all error cases or missing data
         }
-        return null;
+        return await this._fetchRemoteMatch('core-game');
     }
 
     async _getPreGameData() {
@@ -394,7 +406,7 @@ class ValorantClient {
         } catch (e) {
             // Local API 404 means we are definitely NOT in a pre-game.
             if (e.response && e.response.status === 404) {
-                return null;
+                // return null; // FIX: Fallback to remote even if local is 404
             }
             if (e.code === 'ECONNREFUSED' || e.type === 'system') {
                 this.initialized = false;
@@ -402,18 +414,8 @@ class ValorantClient {
                 return null;
             }
 
-            try {
-                const baseUrl = this.glzUrl || `https://glz-${this.region}-1.${this.shard}.a.pvp.net`;
-
-                const json = await this.fetchWithRetry(`${baseUrl}/pre-game/v1/players/${this.puuid}`);
-                const matchId = json.MatchID;
-
-                if (matchId) {
-                    return await this.fetchWithRetry(`${baseUrl}/pre-game/v1/matches/${matchId}`);
-                }
-            } catch (re) { }
         }
-        return null;
+        return await this._fetchRemoteMatch('pre-game');
     }
 
     async _getPartyData() {
@@ -429,7 +431,7 @@ class ValorantClient {
         } catch (e) {
             // If we can't reach local parties endpoint, it's safer to not spam remote
             if (e.response && e.response.status === 404) {
-                return null;
+                // return null; // FIX: Fallback to remote even if local is 404
             }
             if (e.code === 'ECONNREFUSED' || e.type === 'system') {
                 this.initialized = false;
@@ -446,8 +448,6 @@ class ValorantClient {
         }
 
         // Optimized Cache for INGAME
-        // We MUST verify with Local API to ensure we haven't left the game.
-        // The Local API check is cheap (localhost) and prevents "stuck agent" issues.
         if (this.loopState === 'INGAME') {
             const agent = await this.checkCoreGame();
             if (agent) return agent;
@@ -455,7 +455,6 @@ class ValorantClient {
             // If checkCoreGame returned null but we had a cache, 
             // it means we are no longer in game (or local api 404d).
             if (this.cachedAgent) {
-                // Double check: checkCoreGame clears cache on 404, so we are good.
                 return this.cachedAgent; // Only if checkCoreGame somehow failed but didn't 404 (e.g. remote error)
             }
         } else if (this.loopState === 'PREGAME') {
