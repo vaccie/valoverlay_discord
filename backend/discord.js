@@ -33,11 +33,19 @@ class DiscordClient extends EventEmitter {
         this.currentChannelId = null;
         this.connected = false;
 
+        this.speakingUsers = new Set();
+
         this.rpc.on('ready', () => {
             console.log(`Discord RPC Connected as ${this.rpc.user.username}`);
             this.connected = true;
-            this.rpc.subscribe('VOICE_CHANNEL_SELECT').catch(console.error);
+            this.rpc.subscribe('VOICE_CHANNEL_SELECT').catch(e => console.error('[Discord] Subscription Error:', e));
             this.getInitialVoiceState();
+        });
+
+        this.rpc.transport.on('close', () => {
+            console.log('[Discord] RPC Connection Closed. Reconnecting in 5s...');
+            this.connected = false;
+            setTimeout(() => this.connect(), 5000);
         });
 
         this.rpc.on('VOICE_CHANNEL_SELECT', (data) => {
@@ -48,47 +56,47 @@ class DiscordClient extends EventEmitter {
             this.emit('update');
         });
 
-        // Basic event mapping
-        this.rpc.on('VOICE_STATE_UPDATE', (data) => {
-            // Failsafe: If user is muted/deafened, force stop speaking
-            const vs = data.voice_state || {};
-            const isMuted = vs.mute || vs.self_mute || vs.suppress;
 
-            if (isMuted && data.user && data.user.id) {
-                this.emit('speaking', { userId: data.user.id, isSpeaking: false });
-            }
-
-            this.emit('update');
-        });
 
         this.rpc.on('SPEAKING_START', (data) => {
-            this.emit('speaking', { userId: data.user_id, isSpeaking: true });
+            if (data && data.user_id) {
+                this.speakingUsers.add(data.user_id);
+                this.emit('speaking', { userId: data.user_id, isSpeaking: true });
+            }
         });
 
         this.rpc.on('SPEAKING_STOP', (data) => {
-            this.emit('speaking', { userId: data.user_id, isSpeaking: false });
+            if (data && data.user_id) {
+                this.speakingUsers.delete(data.user_id);
+                this.emit('speaking', { userId: data.user_id, isSpeaking: false });
+            }
         });
     }
 
+    isUserSpeaking(userId) {
+        return this.speakingUsers.has(userId);
+    }
+
     async subscribeToVoiceEvents(channelId) {
-        if (this.currentChannelId === channelId) return;
+        // Prevent re-subscribing to the same channel unless we just reconnected
+        if (this.currentChannelId === channelId && this.connected) return;
         this.currentChannelId = channelId;
 
-        console.log(`Subscribing to voice events for channel ${channelId}`);
-        const args = { channel_id: channelId };
+        const args = { channel_id: String(channelId) };
 
         try {
-            await this.rpc.subscribe('VOICE_STATE_CREATE', args);
-            await this.rpc.subscribe('VOICE_STATE_UPDATE', args);
-            await this.rpc.subscribe('VOICE_STATE_DELETE', args);
-            await this.rpc.subscribe('SPEAKING_START', args);
-            await this.rpc.subscribe('SPEAKING_STOP', args);
+            this.rpc.subscribe('SPEAKING_START', args).catch(e => { });
+            this.rpc.subscribe('SPEAKING_STOP', args).catch(e => { });
+            this.rpc.subscribe('VOICE_STATE_CREATE', args).catch(e => { });
+            this.rpc.subscribe('VOICE_STATE_DELETE', args).catch(e => { });
+
+            console.log('[Discord] Subscribed to voice events.');
         } catch (e) {
-            console.error('Failed to subscribe to voice events:', e);
+            // console.error('[Discord] Subscription Warning:', e);
         }
     }
 
-    async getInitialVoiceState() {
+    async getInitialVoiceState(retryCount = 0) {
         try {
             const channel = await this.rpc.request('GET_SELECTED_VOICE_CHANNEL');
             if (channel && channel.id) {
@@ -96,6 +104,10 @@ class DiscordClient extends EventEmitter {
                 this.emit('update');
             }
         } catch (e) {
+            console.log(`[Discord] Initial voice state check failed (Attempt ${retryCount + 1}). Retrying in 1s...`);
+            if (retryCount < 10) {
+                setTimeout(() => this.getInitialVoiceState(retryCount + 1), 1000);
+            }
         }
     }
 

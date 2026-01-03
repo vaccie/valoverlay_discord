@@ -171,6 +171,8 @@ discord.on('speaking', (data) => {
 });
 
 async function sendUpdate() {
+    await valorant.updateLoopState();
+
     const voiceStates = await Promise.race([
         discord.getChannelUsers(),
         new Promise(resolve => setTimeout(() => resolve(null), 2000))
@@ -181,6 +183,7 @@ async function sendUpdate() {
     }
 
     const localAgentId = await valorant.getLocalPlayerAgent();
+
 
     const matchPlayers = await valorant.getMatchPlayers();
     const matchPuuids = matchPlayers.map(p => p.puuid);
@@ -277,7 +280,9 @@ async function sendUpdate() {
             avatar: `https://cdn.discordapp.com/avatars/${member.user.id}/${member.user.avatar}.png`,
             agentImage: imageUrl,
             isMuted: isMuted,
-            isDeaf: isDeaf
+            isMuted: isMuted,
+            isDeaf: isDeaf,
+            isSpeaking: discord.isUserSpeaking(discordId)
         };
     }));
 
@@ -305,15 +310,18 @@ const { exec } = require('child_process');
         exec('start http://localhost:3000/dashboard.html');
     });
 
-    wss.on('connection', () => {
-    });
+
 
     setInterval(async () => {
         if (!valorant.port) {
             await valorant.init();
         }
 
-        await sendUpdate();
+        try {
+            await sendUpdate();
+        } catch (e) {
+            console.log('[MainLoop Error]', e.message);
+        }
 
     }, 1000);
 

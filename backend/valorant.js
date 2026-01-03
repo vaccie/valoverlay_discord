@@ -4,14 +4,50 @@ const https = require('https');
 const fetch = require('node-fetch');
 const os = require('os');
 
+
 class ValorantClient {
     constructor() {
         this.client = null; // Stores base URL and auth headers
         this.puuid = null;
         this.agentMap = {};
         this.initialized = false;
-        // Self-signed cert agent - Riot's local API uses a self-signed cert so we have to tell node to chill
-        this.httpsAgent = new https.Agent({ rejectUnauthorized: false });
+        this.playerNameCache = {};
+        this.loopState = null;
+        this.cachedAgent = null;
+    }
+
+    async updateLoopState() {
+        if (!this.initialized) return;
+        try {
+            const presences = await this.request('/chat/v4/presences');
+            const myPresence = presences.data.presences.find(p => p.puuid === this.puuid);
+
+            if (myPresence && myPresence.private) {
+                const privateData = JSON.parse(Buffer.from(myPresence.private, 'base64').toString());
+
+                if (privateData.sessionLoopState) {
+                    this.loopState = privateData.sessionLoopState;
+                    if (this.loopState !== 'INGAME') this.cachedAgent = null;
+                    return;
+                }
+
+                // Fallback Inference
+                if (privateData.matchPresenceData) {
+                    // console.log('[DEBUG] Inferred INGAME from matchPresenceData');
+                    this.loopState = 'INGAME';
+                    return;
+                }
+
+                if (privateData.partyPresenceData) {
+                    // console.log('[DEBUG] Inferred MENUS from partyPresenceData');
+                    this.loopState = 'MENUS';
+                    return;
+                }
+            }
+        } catch (e) {
+            console.log('[DEBUG] updateLoopState error:', e.message);
+        }
+        this.loopState = null;
     }
 
     // Helper to mimic axios-like request behavior
@@ -45,6 +81,9 @@ class ValorantClient {
     }
 
     async init() {
+        // Self-signed cert agent - Riot's local API uses a self-signed cert so we have to tell node to chill
+        this.httpsAgent = new https.Agent({ rejectUnauthorized: false });
+
         try {
             const lockfilePath = path.join(os.homedir(), 'AppData', 'Local', 'Riot Games', 'Riot Client', 'Config', 'lockfile');
 
@@ -201,6 +240,24 @@ class ValorantClient {
 
     async fetchPlayerNames(puuids) {
         if (!puuids || puuids.length === 0) return {};
+
+        const result = {};
+        const missingPuuids = [];
+
+        // 1. Check Cache
+        puuids.forEach(puuid => {
+            if (this.playerNameCache[puuid]) {
+                result[puuid] = this.playerNameCache[puuid];
+            } else {
+                missingPuuids.push(puuid);
+            }
+        });
+
+        // If everything is cached, return immediately (Zero Network Traffic)
+        if (missingPuuids.length === 0) {
+            return result;
+        }
+
         try {
             const headers = this.getRemoteHeaders();
             const region = this.region || 'eu';
@@ -212,39 +269,34 @@ class ValorantClient {
                     ...headers,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(puuids)
+                body: JSON.stringify(missingPuuids)
             });
 
             if (!res.ok) throw new Error(`Status ${res.status}`);
             const data = await res.json();
 
-            const nameMap = {};
             if (data) {
                 data.forEach(p => {
                     if (p.GameName && p.TagLine) {
-                        nameMap[p.Subject] = `${p.GameName}#${p.TagLine}`;
+                        const fullName = `${p.GameName}#${p.TagLine}`;
+                        // 2. Update Cache
+                        this.playerNameCache[p.Subject] = fullName;
+                        result[p.Subject] = fullName;
                     }
                 });
             }
-            return nameMap;
+            return result;
         } catch (e) {
             console.log('[Valorant] Failed to fetch player names:', e.message);
-            return {};
+            // Return what we have in cache even if fetch fails
+            return result;
         }
     }
 
     async getMatchPlayers() {
         if (!this.initialized) return [];
 
-        let loopState = null;
-        try {
-            const presences = await this.request('/chat/v4/presences');
-            const myPresence = presences.data.presences.find(p => p.puuid === this.puuid);
-            if (myPresence && myPresence.private) {
-                const privateData = JSON.parse(Buffer.from(myPresence.private, 'base64').toString());
-                if (privateData.sessionLoopState) loopState = privateData.sessionLoopState;
-            }
-        } catch (e) { }
+        const loopState = this.loopState;
 
         const extractPlayers = (resData, source) => {
             if (source === 'CORE') {
@@ -306,6 +358,17 @@ class ValorantClient {
                 return matchRes.data;
             }
         } catch (e) {
+            // Local API 404 means we are definitely NOT in a core game. Do not fallback.
+            if (e.response && e.response.status === 404) {
+                return null;
+            }
+            // If connection is refused/reset, the game might have closed or changed ports
+            if (e.code === 'ECONNREFUSED' || e.type === 'system') {
+                this.initialized = false;
+                this.port = null;
+                return null;
+            }
+
             try {
                 const baseUrl = this.glzUrl || `https://glz-${this.region}-1.${this.shard}.a.pvp.net`;
 
@@ -329,6 +392,16 @@ class ValorantClient {
                 return matchRes.data;
             }
         } catch (e) {
+            // Local API 404 means we are definitely NOT in a pre-game.
+            if (e.response && e.response.status === 404) {
+                return null;
+            }
+            if (e.code === 'ECONNREFUSED' || e.type === 'system') {
+                this.initialized = false;
+                this.port = null;
+                return null;
+            }
+
             try {
                 const baseUrl = this.glzUrl || `https://glz-${this.region}-1.${this.shard}.a.pvp.net`;
 
@@ -353,7 +426,17 @@ class ValorantClient {
 
                 return await this.fetchWithRetry(remoteUrl);
             }
-        } catch (e) { }
+        } catch (e) {
+            // If we can't reach local parties endpoint, it's safer to not spam remote
+            if (e.response && e.response.status === 404) {
+                return null;
+            }
+            if (e.code === 'ECONNREFUSED' || e.type === 'system') {
+                this.initialized = false;
+                this.port = null;
+                return null;
+            }
+        }
         return null;
     }
 
@@ -362,27 +445,28 @@ class ValorantClient {
             return null;
         }
 
-        let loopState = null;
-        try {
-            const presences = await this.request('/chat/v4/presences');
-            const myPresence = presences.data.presences.find(p => p.puuid === this.puuid);
-            if (myPresence && myPresence.private) {
-                const privateData = JSON.parse(Buffer.from(myPresence.private, 'base64').toString());
-                if (privateData.sessionLoopState) {
-                    loopState = privateData.sessionLoopState;
-                }
+        // Optimized Cache for INGAME
+        // We MUST verify with Local API to ensure we haven't left the game.
+        // The Local API check is cheap (localhost) and prevents "stuck agent" issues.
+        if (this.loopState === 'INGAME') {
+            const agent = await this.checkCoreGame();
+            if (agent) return agent;
+
+            // If checkCoreGame returned null but we had a cache, 
+            // it means we are no longer in game (or local api 404d).
+            if (this.cachedAgent) {
+                // Double check: checkCoreGame clears cache on 404, so we are good.
+                return this.cachedAgent; // Only if checkCoreGame somehow failed but didn't 404 (e.g. remote error)
             }
-        } catch (e) {
+        } else if (this.loopState === 'PREGAME') {
+            const agent = await this.checkPreGame();
+            if (agent) return agent;
+        } else if (this.loopState === 'MENUS') {
+            const agent = await this.checkParty();
+            if (agent) return agent;
         }
 
-        if (loopState === 'INGAME') {
-            return await this.checkCoreGame();
-        } else if (loopState === 'PREGAME') {
-            return await this.checkPreGame();
-        } else if (loopState === 'MENUS') {
-            return await this.checkParty();
-        }
-
+        // Fallback: Check ALL
         const coreAgent = await this.checkCoreGame();
         if (coreAgent) return coreAgent;
 
@@ -396,34 +480,57 @@ class ValorantClient {
         try {
             const res = await this.request(`/core-game/v1/players/${this.puuid}`);
             const matchId = res.data.MatchID;
+
             if (matchId) {
                 const matchRes = await this.request(`/core-game/v1/matches/${matchId}`);
-                const player = matchRes.data.Players.find(p => p.Subject === this.puuid);
+                const players = matchRes.data.Players || [];
+
+                const player = players.find(p => p.Subject === this.puuid);
                 if (player) {
+                    this.cachedAgent = player.CharacterID;
                     return player.CharacterID;
                 }
             }
         } catch (e) {
+            if (e.response && e.response.status === 404) {
+                // Local API says 404, but we might be ingame and local is broken.
+                // Fall through to Remote Check.
+            }
+
+            if (e.code === 'ECONNREFUSED' || e.type === 'system') {
+                this.initialized = false;
+                this.port = null;
+                return null;
+            }
+
             try {
                 const headers = this.getRemoteHeaders();
                 const baseUrl = this.glzUrl || `https://glz-${this.region}-1.${this.shard}.a.pvp.net`;
 
                 const res = await fetch(`${baseUrl}/core-game/v1/players/${this.puuid}`, { headers });
-                if (!res.ok) throw new Error();
+                if (!res.ok) throw new Error(`GLZ Player Status: ${res.status}`);
                 const json = await res.json();
 
                 const matchId = json.MatchID;
                 if (matchId) {
                     const matchRes = await fetch(`${baseUrl}/core-game/v1/matches/${matchId}`, { headers });
-                    if (!matchRes.ok) throw new Error();
+                    if (!matchRes.ok) throw new Error('GLZ Match Status: ' + matchRes.status);
                     const matchData = await matchRes.json();
 
                     const player = matchData.Players.find(p => p.Subject === this.puuid);
                     if (player) {
+                        this.cachedAgent = player.CharacterID;
                         return player.CharacterID;
                     }
                 }
             } catch (remoteErr) {
+                // If remote explicitly says 404/MatchNotFound, clear cache.
+                if (remoteErr.message && remoteErr.message.includes('404')) {
+                    this.cachedAgent = null;
+                    return null;
+                }
+                // Otherwise (connection error), keep cache as fallback
+                if (this.cachedAgent) return this.cachedAgent;
             }
         }
         return null;
@@ -433,32 +540,47 @@ class ValorantClient {
         try {
             const res = await this.request(`/pre-game/v1/players/${this.puuid}`);
             const matchId = res.data.MatchID;
+
             if (matchId) {
                 const matchRes = await this.request(`/pre-game/v1/matches/${matchId}`);
-                const player = matchRes.data.AllyTeam.Players.find(p => p.Subject === this.puuid);
-                if (player) return player.CharacterID;
+                const players = matchRes.data.AllyTeam ? matchRes.data.AllyTeam.Players : [];
+
+                const player = players.find(p => p.Subject === this.puuid);
+                if (player) {
+                    return player.CharacterID;
+                }
             }
         } catch (e) {
+            if (e.response && e.response.status === 404) {
+                // Do not return null here, fall through to remote check
+            }
+
+            if (e.code === 'ECONNREFUSED' || e.type === 'system') {
+                this.initialized = false;
+                this.port = null;
+                return null;
+            }
+
             try {
                 const headers = this.getRemoteHeaders();
                 const baseUrl = this.glzUrl || `https://glz-${this.region}-1.${this.shard}.a.pvp.net`;
 
                 const res = await fetch(`${baseUrl}/pre-game/v1/players/${this.puuid}`, { headers });
-                if (!res.ok) throw new Error();
+                if (!res.ok) throw new Error(`GLZ PreGame Status: ${res.status}`);
                 const json = await res.json();
 
                 const matchId = json.MatchID;
+
                 if (matchId) {
                     const matchRes = await fetch(`${baseUrl}/pre-game/v1/matches/${matchId}`, { headers });
-                    if (!matchRes.ok) throw new Error();
+                    if (!matchRes.ok) throw new Error('GLZ PreGame Match Status: ' + matchRes.status);
                     const matchData = await matchRes.json();
                     const player = matchData.AllyTeam.Players.find(p => p.Subject === this.puuid);
                     if (player) {
                         return player.CharacterID;
                     }
                 }
-            } catch (remoteErr) {
-            }
+            } catch (re) { }
         }
         return null;
     }

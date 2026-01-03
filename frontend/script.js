@@ -10,13 +10,11 @@ function connect() {
         if (data.type === 'state') {
             updateUsers(data.users);
         } else if (data.type === 'speaking') {
-            console.log('Received speaking event:', data.userId, data.isSpeaking);
             updateSpeaking(data.userId, data.isSpeaking);
         }
     };
 
     ws.onclose = () => {
-        console.log('Disconnected. Reconnecting...');
         setTimeout(connect, 2000);
     };
 }
@@ -69,6 +67,12 @@ function updateUsers(userList) {
             entry.element.dataset.muted = String(user.isMuted);
             entry.element.dataset.deafened = String(user.isDeaf);
         }
+
+        if (user.isSpeaking) {
+            users[user.id].element.classList.add('speaking');
+        } else {
+            users[user.id].element.classList.remove('speaking');
+        }
     });
 }
 
@@ -76,12 +80,9 @@ function updateSpeaking(userId, isSpeaking) {
     if (users[userId]) {
         if (isSpeaking) {
             users[userId].element.classList.add('speaking');
-            console.log('Added speaking class to', userId);
         } else {
             users[userId].element.classList.remove('speaking');
-            console.log('Removed speaking class from', userId);
         }
-    } else {
     }
 }
 
